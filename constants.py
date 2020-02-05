@@ -12,3 +12,4 @@ USER2IND_PATH = os.path.join(CSI_ROOT, "user2ind.pickle")
 EID2IND_PATH = os.path.join(CSI_ROOT, "eid2ind.pickle")
 EID_TRAIN_PATH = os.path.join(CSI_ROOT, "eid_train.pickle")
 EID_TEST_PATH = os.path.join(CSI_ROOT, "eid_test.pickle")
+NEWS_GRAPH_ROOT = "data/news_graph"

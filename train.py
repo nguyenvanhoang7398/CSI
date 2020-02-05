@@ -10,12 +10,13 @@ def sigmoid_array(x):
     return 1 / (1 + np.exp(-x))
 
 
-def train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, dict_, subX_dict, scaler_dict, model):
+def train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, dict_, subX_dict,
+                  X_news_dict, scaler_dict, model):
     noerr_eid_list = set()
 
     ### Training... ###
     # acc = 0
-    nb_epoch = 30
+    nb_epoch = 50
     if task == "regression":
         eid_train = eid_list
         eid_test = []
@@ -25,6 +26,7 @@ def train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, d
         ##### Looping for eid_train #####
         losses = []
         for ii, eid in enumerate(eid_train):
+            X_news = X_news_dict[eid]
             X = X_dict[eid]
             if X.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
                 continue
@@ -58,11 +60,15 @@ def train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, d
                 trainY = y
                 dim_output = 1
 
+            capture_inputs = trainX[np.newaxis, :, :]
+            score_inputs = sub_trainX[np.newaxis, :, :]
+            news_inputs = X_news[np.newaxis, :]
+
             if ep % 50 == 0 and ii % 1000 == 0:
-                h = model.fit([trainX[np.newaxis, :, :], sub_trainX[np.newaxis, :, :]], np.array([trainY]),
+                h = model.fit([capture_inputs, score_inputs, news_inputs], np.array([trainY]),
                               batch_size=1, nb_epoch=1, verbose=2)
             else:
-                h = model.fit([trainX[np.newaxis, :, :], sub_trainX[np.newaxis, :, :]], np.array([trainY]),
+                h = model.fit([capture_inputs, score_inputs, news_inputs], np.array([trainY]),
                               batch_size=1, nb_epoch=1, verbose=0)
             losses.append(h.history['loss'][0])
         print("%% mean loss : {}".format(np.mean(losses)))
@@ -72,6 +78,7 @@ def train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, d
         rmses = []
         y_test = []
         for ii, eid in enumerate(eid_test):
+            X_news = X_news_dict[eid]
             X = X_dict[eid]
             if X.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
                 continue
@@ -81,11 +88,13 @@ def train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, d
 
             testX = X
             sub_testX = subX_dict[eid]
+            news_testX = X_news
 
             if task == "classification":
                 y_test.append(int(dict_[eid]['label']))
 
-                pred = model.predict([np.array([testX]), np.array([sub_testX])], verbose=0)
+                pred = model.predict([np.array([testX]), np.array([sub_testX]),
+                                      np.array([news_testX])], verbose=0)
                 preds.append(pred[0, 0])
 
             elif task == "regression":
@@ -110,11 +119,11 @@ def train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, d
         if task == "classification":
             preds = np.array(preds)
             preds = preds > 0.5
+            print(y_test, preds)
             accuracy = accuracy_score(y_test, preds)
             precision = precision_score(y_test, preds)
             recall = recall_score(y_test, preds)
             f1 = f1_score(y_test, preds)
-            tn, fp, fn, tp = confusion_matrix(y_test, preds).ravel()
 
             print("%%% Test results {} samples %%%".format(len(y_test)))
             print("accuracy: {}".format(accuracy))
@@ -131,6 +140,7 @@ if __name__ == "__main__":
     eid_list = load_from_pickle(EID_LIST_PATH)
     X_dict = load_from_pickle(X_DICT_PATH)
     y_dict = load_from_pickle(Y_DICT_PATH)
+    X_news_dict = load_from_pickle(os.path.join(NEWS_GRAPH_ROOT, "news_source_features.pickle"))
     dict_ = load_from_pickle(DICT_PATH)
     subX_dict = load_from_pickle(SUBX_DICT_PATH)
     scaler_dict = load_from_pickle(SCALER_DICT_PATH)
@@ -142,4 +152,5 @@ if __name__ == "__main__":
     task, nb_feature_sub, burnin = params["task"], params["nb_feature_sub"], params["burnin"]
 
     model = build_csi(user2ind, eid2ind, nb_feature_sub, task)
-    train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, dict_, subX_dict, scaler_dict, model)
+    train_test_fn(eid_train, eid_test, task, eid_list, burnin, X_dict, y_dict, dict_, subX_dict, X_news_dict,
+                  scaler_dict, model)

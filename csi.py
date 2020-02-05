@@ -7,7 +7,7 @@ from keras.models import load_model
 from keras.models import Model
 from keras.optimizers import Adam
 from keras.regularizers import l2
-from keras.layers import Dense, Input, Dropout, Lambda, LSTM, Embedding, Conv1D, TimeDistributed, Add
+from keras.layers import Dense, Input, Dropout, Lambda, LSTM, Embedding, Conv1D, TimeDistributed, Add, Concatenate
 
 from keras import regularizers
 from keras.optimizers import Adam
@@ -22,6 +22,13 @@ def build_csi(user2ind, eid2ind, nb_feature_sub, task):
     nb_events = len(eid2ind)
     nb_features = 2+20+100    # (#temporal, #user, #doc)
     dim_hidden = 50
+    text_feature_dim = 250
+    news_feature_dim = text_feature_dim * 2
+
+    ##### News (event) feature part #####
+    ef_inputs = Input(batch_shape=(None, news_feature_dim)) ### news text + source text
+    ef = Dense(100, activation='tanh')(ef_inputs)
+
 
     ##### Main part #####
     inputs = Input(shape=(None, nb_features))
@@ -35,29 +42,30 @@ def build_csi(user2ind, eid2ind, nb_feature_sub, task):
     ##### Sub part #####
     nb_score = 1
     nb_expand = 100
-    sub_input = Input(shape=(None, nb_feature_sub))
+    sub_input = Input(shape=(None, nb_feature_sub + text_feature_dim))
     user_vec = TimeDistributed(Dense(nb_expand, activation='tanh',
                                      W_regularizer=regularizers.l2(0.01)))(sub_input)   # (None, None, nb_expand)
     sub_h = TimeDistributed(Dense(nb_score, activation='sigmoid'))(user_vec)    # (None, None, nb_score)
     z = Lambda(lambda x: K.mean(x, axis=1), output_shape=lambda s: (s[0], s[2]))(sub_h)    #(None, nb_score)
 
     ##### Concatenate #####
-    out1 = Dense(1, activation='sigmoid')(rnn_out)
-    concat_out = Add()([out1, z])
+    # out1 = Dense(1, activation='sigmoid')(rnn_out)
+    # concat_out = Add()([out1, z])
+    concat_out = Concatenate(axis=1)([rnn_out, z, ef])
     # concat_out = merge([rnn_out, z], mode='concat', concat_axis=1)
     # concat_out = concatenate([rnn_out, z], axis=1)
 
     ##### Classifier #####
     # outputs = Dense(1, activation='sigmoid')(concat_out)
-    # outputs = Dense(1, activation='sigmoid')(concat_out)
-    outputs = concat_out
+    outputs = Dense(1, activation='sigmoid')(concat_out)
+    # outputs = concat_out
 
 
     ##### Model #####
-    hvector = Model(input=[inputs, sub_input], output=concat_out)
-    zscore = Model(input=sub_input, output=sub_h)
-    model = Model(input=[inputs, sub_input], output=outputs)
-    uvector = Model(input=sub_input, output=user_vec)
+    hvector = Model(input=[inputs, sub_input, ef_inputs], output=concat_out)
+    # zscore = Model(input=sub_input, output=sub_h)
+    model = Model(input=[inputs, sub_input, ef_inputs], output=outputs)
+    # uvector = Model(input=sub_input, output=user_vec)
     # model = Model(input=inputs, output=outputs)
 
 

@@ -1,6 +1,9 @@
 data/
-doc2vec_model/
+doc2vec_model_no_features/
 venv/
 .idea/
 **/__pycache__/**
 .DS_Store
+doc2vec_model_no_features
+doc2vec_model_old
+doc2vec_model

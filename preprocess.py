@@ -140,14 +140,20 @@ def get_user_in_event(dict_, eid, u_sample):
     return user_in_event    # [(user_id, #occur in eid), (user_id, #occur in eid), ...]
 
 
-def get_user_feature_in_event(dict_, eid, u_sample, user_feature_sub, user_sample2ind):
+def get_user_feature_in_event(dict_, eid, u_sample, user_feature_sub, user_sample2ind, user_text_feature=None):
     '''Get user_feature_sub matrix for event eid'''
     user_in_event = get_user_in_event(dict_, eid, u_sample)
     nb_feature = user_feature_sub.shape[1]
 
     for uid, nb_occur in user_in_event:
         uind = user_sample2ind[uid]
-        feature_vec = user_feature_sub[uind, :].reshape(1, -1)
+        structure_vec = user_feature_sub[uind, :].reshape(1, -1)
+        if user_text_feature is not None:
+            text_vec = user_text_feature[uid] if uid in user_text_feature else np.zeros(250)
+            text_vec = text_vec.reshape((1, 250))
+            feature_vec = np.concatenate([structure_vec, text_vec], axis=1)
+        else:
+            feature_vec = structure_vec
         try:
             ret_matrix = np.concatenate((ret_matrix, feature_vec), axis=0)
         except:
@@ -329,7 +335,7 @@ if __name__ == "__main__":
     print("Min # messages : {}".format(np.min(nb_messages)))
     print("Avg. messages / each user : {}".format(np.sum(nb_messages) / len(user_set)))
 
-    threshold = 5000
+    threshold = 50000
     u_sample = get_Usample(dict_, most_common=threshold)
     u_pop = get_Usample(dict_, most_common=len(user_set))
     print("u_sample for most common {} users is obtained.".format(threshold))
@@ -416,6 +422,7 @@ if __name__ == "__main__":
             sentences = pickle.load(f)
     else:
         sentences = build_doc2vec_dataset(eid_list, dict_)
+    print("Num sentences {}".format(len(sentences)))
     doc_vectorizer = train_doc2vec(model_path, sentences)
 
     LOAD_MODEL = False
@@ -435,14 +442,25 @@ if __name__ == "__main__":
 
     rumor_user = []
     nonrumor_user = []
-    eid_train, eid_test, _, _ = train_test_split(eid_list, range(len(eid_list)),
-                                                 test_size=0.2, random_state=3)
+
+    with open(os.path.join(CSI_ROOT, "train_test_val90.json"), "rb") as f:
+        train_test_val = json.load(f)
+
+    eid_train, eid_test = train_test_val["train"], train_test_val["val"]
+
+    # eid_train, eid_test, _, _ = train_test_split(eid_list, range(len(eid_list)),
+    #                                              test_size=0.2, random_state=3)
 
     # eid_train = pickle.load(open('./pickle/tweet_eid_train.pkl', 'r'))
     # eid_test = pickle.load(open('./pickle/tweet_eid_test.pkl', 'r'))
 
     # embeddings_index = None
     # doc_vectorizer = None
+
+    ### Load news graph features ###
+    user_text_dict = load_from_pickle(os.path.join(NEWS_GRAPH_ROOT, "user_features.pickle"))
+
+
     for ii, eid in enumerate(eid_list):
         if read_user:
             X, X_uidx, y = create_dataset(dict_, eid, threshold=90 * 24, resolution='hour',
@@ -473,7 +491,8 @@ if __name__ == "__main__":
         if read_user:
             X_uidx_dict[eid] = X_uidx
         subX_dict[eid] = get_user_feature_in_event(dict_, eid, u_sample,
-                                                   user_feature_sub[:, :nb_feature_sub], user_sample2ind)
+                                                   user_feature_sub[:, :nb_feature_sub],
+                                                   user_sample2ind, user_text_feature=user_text_dict)
         y_dict[eid] = y
 
         try:
@@ -492,14 +511,14 @@ if __name__ == "__main__":
         "burnin": burnin
     }
 
-    save_as_pickle(eid_list, EID_LIST_PATH)
-    save_as_pickle(X_dict, X_DICT_PATH)
-    save_as_pickle(y_dict, Y_DICT_PATH)
-    save_as_pickle(dict_, DICT_PATH)
-    save_as_pickle(subX_dict, SUBX_DICT_PATH)
-    save_as_pickle(scaler_dict, SCALER_DICT_PATH)
-    save_as_pickle(params, PARAM_PATH)
-    save_as_pickle(user2ind, USER2IND_PATH)
-    save_as_pickle(eid2ind, EID2IND_PATH)
-    save_as_pickle(eid_train, EID_TRAIN_PATH)
-    save_as_pickle(eid_test, EID_TEST_PATH)
+    save_to_pickle(eid_list, EID_LIST_PATH)
+    save_to_pickle(X_dict, X_DICT_PATH)
+    save_to_pickle(y_dict, Y_DICT_PATH)
+    save_to_pickle(dict_, DICT_PATH)
+    save_to_pickle(subX_dict, SUBX_DICT_PATH)
+    save_to_pickle(scaler_dict, SCALER_DICT_PATH)
+    save_to_pickle(params, PARAM_PATH)
+    save_to_pickle(user2ind, USER2IND_PATH)
+    save_to_pickle(eid2ind, EID2IND_PATH)
+    save_to_pickle(eid_train, EID_TRAIN_PATH)
+    save_to_pickle(eid_test, EID_TEST_PATH)

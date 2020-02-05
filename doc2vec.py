@@ -10,6 +10,7 @@ def build_doc2vec_dataset(eid_list, dict_):
     threshold = 90 * 24
     resolution = 'hour'
     sentences = []
+    total_text_len, count = 0., 0
 
     for ii, eid in enumerate(eid_list):
         if ii % 100 == 0:
@@ -59,7 +60,12 @@ def build_doc2vec_dataset(eid_list, dict_):
                 eid_str = eid
             doc_id = eid_str + '_%s' % bid
             print(doc_id)
-            sentences.append(LabeledSentence(utils.to_unicode(doc).split(), [doc_id]))
+            sentence_data = utils.to_unicode(doc).split()
+            sentences.append(LabeledSentence(sentence_data, [doc_id]))
+            total_text_len += len(sentence_data)
+            count += 1
+
+    print(total_text_len/count)
 
     print("length of sentences : {}".format(len(sentences)))
     return sentences
@@ -84,5 +90,4 @@ def train_doc2vec(model_path, sentences):
         print("doc2vec training is done.")
         doc_vectorizer.save(model_path)
 
-    print(doc_vectorizer.docvecs['E356_10'].shape)
     return doc_vectorizer
