@@ -149,8 +149,8 @@ def get_user_feature_in_event(dict_, eid, u_sample, user_feature_sub, user_sampl
         uind = user_sample2ind[uid]
         structure_vec = user_feature_sub[uind, :].reshape(1, -1)
         if user_text_feature is not None:
-            text_vec = user_text_feature[uid] if uid in user_text_feature else np.zeros(250)
-            text_vec = text_vec.reshape((1, 250))
+            text_vec = user_text_feature[uid] if uid in user_text_feature else np.zeros(100)
+            text_vec = text_vec.reshape((1, 100))
             feature_vec = np.concatenate([structure_vec, text_vec], axis=1)
         else:
             feature_vec = structure_vec
@@ -426,11 +426,11 @@ if __name__ == "__main__":
     doc_vectorizer = train_doc2vec(model_path, sentences)
 
     LOAD_MODEL = False
-    task = "classification"  # "classification"
+    TASK = "classification"  # "classification"
 
     scaler_dict = {}
     nb_rumor = 0
-    burnin = 5 if task == "regression" else 0
+    burnin = 5 if TASK == "regression" else 0
 
     ### Create dataset ###
     X_dict = {}
@@ -443,10 +443,10 @@ if __name__ == "__main__":
     rumor_user = []
     nonrumor_user = []
 
-    with open(os.path.join(CSI_ROOT, "train_test_val90.json"), "rb") as f:
+    with open(os.path.join(CSI_ROOT, "train_test_90_0.json"), "rb") as f:
         train_test_val = json.load(f)
 
-    eid_train, eid_test = train_test_val["train"], train_test_val["val"]
+    eid_train, eid_val, eid_test = train_test_val["train"], train_test_val["val"], train_test_val["test"]
 
     # eid_train, eid_test, _, _ = train_test_split(eid_list, range(len(eid_list)),
     #                                              test_size=0.2, random_state=3)
@@ -466,13 +466,13 @@ if __name__ == "__main__":
             X, X_uidx, y = create_dataset(dict_, eid, threshold=90 * 24, resolution='hour',
                                           read_text=read_text, embeddings_index=None, stopwords=None,
                                           doc2vec_model=doc_vectorizer, user_feature=user_feature[:, :nb_feature_main],
-                                          user2ind=user2ind, read_user=read_user, task=task, cutoff=50,
+                                          user2ind=user2ind, read_user=read_user, task=TASK, cutoff=50,
                                           return_useridx=True)
         else:
             X, y = create_dataset(dict_, eid, threshold=90 * 24, resolution='hour',
                                   read_text=read_text, embeddings_index=None, stopwords=None,
                                   doc2vec_model=doc_vectorizer, user_feature=user_feature[:, :nb_feature_main],
-                                  user2ind=user2ind, read_user=read_user, task=task, cutoff=50,
+                                  user2ind=user2ind, read_user=read_user, task=TASK, cutoff=50,
                                   return_useridx=False)
         if ii % 100 == 0:
             print("processing... {}/{}  shape:{}".format(ii + 1, len(eid_list), X.shape))
@@ -506,7 +506,7 @@ if __name__ == "__main__":
     print("Dataset are created.")
 
     params = {
-        "task": task,
+        "task": TASK,
         "nb_feature_sub": nb_feature_sub,
         "burnin": burnin
     }
@@ -521,4 +521,5 @@ if __name__ == "__main__":
     save_to_pickle(user2ind, USER2IND_PATH)
     save_to_pickle(eid2ind, EID2IND_PATH)
     save_to_pickle(eid_train, EID_TRAIN_PATH)
+    save_to_pickle(eid_val, EID_VAL_PATH)
     save_to_pickle(eid_test, EID_TEST_PATH)

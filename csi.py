@@ -22,7 +22,7 @@ def build_csi(user2ind, eid2ind, nb_feature_sub, task):
     nb_events = len(eid2ind)
     nb_features = 2+20+100    # (#temporal, #user, #doc)
     dim_hidden = 50
-    text_feature_dim = 250
+    text_feature_dim = 100
     news_feature_dim = text_feature_dim * 2
 
     ##### News (event) feature part #####
