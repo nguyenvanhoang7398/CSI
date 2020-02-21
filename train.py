@@ -27,8 +27,10 @@ def train_test_fn(eid_train, eid_val, task, eid_list, burnin, X_dict, y_dict, di
     best_evaluator, best_output_path = Evaluator(predictions=[], labels=[]), ""
     exp_name = get_exp_name("fang", "csi")
     save_dir = os.path.join("exp_ckpt", exp_name)
+    os.makedirs(save_dir)
     best_dir_path = os.path.join(save_dir, "best.ckpt")
     log_dir = os.path.join("exp_log", exp_name)
+    os.makedirs(log_dir)
     writer = SummaryWriter(log_dir)
 
     noerr_eid_list = set()
@@ -97,7 +99,7 @@ def eval_fn(model_obj, eid_val, writer, step, tag_name="validate"):
         sub_testX = subX_dict[remove_tag(eid)]
         news_testX = X_news
 
-        y_test.append(int(dict_[eid]['label']))
+        y_test.append(int(dict_[remove_tag(eid)]['label']))
 
         pred = model_obj.predict([np.array([testX]), np.array([sub_testX]),
                               np.array([news_testX])], verbose=0)
@@ -123,7 +125,7 @@ if __name__ == "__main__":
     user2ind = load_from_pickle(USER2IND_PATH)
     eid2ind = load_from_pickle(EID2IND_PATH)
     _eid_train = load_from_pickle(EID_TRAIN_PATH)
-    _eid_val = load_from_pickle(EID_VAL_PATH)
+    _eid_val = load_from_pickle(EID_TEST_PATH)
     _eid_test = load_from_pickle(EID_TEST_PATH)
     task, nb_feature_sub, burnin = params["task"], params["nb_feature_sub"], params["burnin"]
 
@@ -132,3 +134,4 @@ if __name__ == "__main__":
                                              scaler_dict, model)
     model.load_weights(best_model_path)
     eval_fn(model, _eid_test, _writer, N_EPOCHS, "test")
+    _writer.close()

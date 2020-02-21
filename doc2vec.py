@@ -4,11 +4,24 @@ import re
 from gensim import utils
 from gensim.models.doc2vec import LabeledSentence
 from gensim.models import Doc2Vec
+from constants import *
+
+
+def get_bin_size(resolution):
+    if resolution == 'day':
+        binsize = 3600 * 24
+    elif resolution == 'hour':
+        binsize = 3600
+    elif resolution == 'minute':
+        binsize = 60
+    else:
+        raise ValueError("Unrecognized resolution {}".format(resolution))
+    return binsize
 
 
 def build_doc2vec_dataset(eid_list, dict_):
-    threshold = 90 * 24
-    resolution = 'hour'
+    threshold = THRESHOLD
+    resolution = RESOLUTION
     sentences = []
     total_text_len, count = 0., 0
 
@@ -19,14 +32,7 @@ def build_doc2vec_dataset(eid_list, dict_):
         ts = np.array(messages['timestamps'], dtype=np.int32)
         text_seq = np.array(messages['text'])
 
-        if resolution == 'day':
-            binsize = 3600 * 24
-        elif resolution == 'hour':
-            binsize = 3600
-        elif resolution == 'minute':
-            binsize = 60
-        else:
-            raise ValueError("Unrecognized resolution {}".format(resolution))
+        binsize = get_bin_size(resolution)
         cnt, bins = np.histogram(ts, bins=range(0, threshold * binsize, binsize))
 
         nonzero_bins_ind = np.nonzero(cnt)[0]

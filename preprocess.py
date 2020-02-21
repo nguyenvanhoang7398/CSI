@@ -12,6 +12,20 @@ from doc2vec import train_doc2vec, build_doc2vec_dataset
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from utils import *
+from stance import *
+
+
+def load_event_tweet_stance_dict():
+    event_tweet_stance_dict = {}
+    for stance_label in CHOSEN_STANCES:
+        stance_path = os.path.join(NEWS_GRAPH_ROOT, "{}.tsv".format(stance_label))
+        stance_data = read_csv(stance_path, True, "\t")
+        for row in stance_data:
+            news, user = remove_tag(row[1]), remove_tag(row[0])
+            if news not in event_tweet_stance_dict:
+                event_tweet_stance_dict[news] = {}
+            event_tweet_stance_dict[news][user] = stance_label
+    return event_tweet_stance_dict
 
 
 def get_user_event_matrix(dict_, u_sample, user2ind, binary=False):
@@ -66,7 +80,7 @@ def get_stats(dict_):
     return _nb_messages, _eid_list, _user_set, _list_lengths
 
 
-def load_or_create_dataset(csi_root):
+def load_or_create_dataset(csi_root, temporal=True):
     dataset_output_path = os.path.join(csi_root, "processed_csi.pickle")
 
     if os.path.exists(dataset_output_path):
@@ -75,34 +89,38 @@ def load_or_create_dataset(csi_root):
             return pickle.load(f)
 
     csi_dir = os.path.join(csi_root, "csi")
+    event_tweet_stance_dict = load_event_tweet_stance_dict()
     csi_data = {}
 
     for label in os.listdir(csi_dir):
         csi_label_dir = os.path.join(csi_dir, label)
 
-        for i, eid in enumerate(os.listdir(csi_label_dir)):
-            if i % 10 == 0:
-                print("Loaded {} events".format(i))
+        for i, eid in tqdm(enumerate(os.listdir(csi_label_dir)), desc="Loading events"):
             eid_dir = os.path.join(csi_label_dir, eid)
             tweet_dir = os.path.join(eid_dir, "tweets")
             csi_data[eid] = {
                 "timestamps": [],
                 "uid": [],
                 "text": [],
-                "label": 1 if label == "real" else 0
+                "label": 1 if label == "real" else 0,
+                "stances": []
             }
             engagements = []
             for tweet_id in os.listdir(tweet_dir):
                 tweet_path = os.path.join(tweet_dir, tweet_id)
                 with open(tweet_path, "r") as f:
                     tweet_content = json.load(f)
-                unix_ts = convert_unix_ts(tweet_content["created_at"])
+                unix_ts = convert_unix_ts(tweet_content["created_at"]) if temporal else 0.
                 uid = tweet_content["user"]["id"]
                 text = tweet_content["text"]
+                stance = event_tweet_stance_dict[eid][str(uid)] \
+                    if eid in event_tweet_stance_dict and str(uid) in event_tweet_stance_dict[eid] \
+                    else "none"
                 engagements.append({
                     "ts": unix_ts,
                     "uid": uid,
-                    "text": text
+                    "text": text,
+                    "stance": stance
                 })
             engagements = sorted(engagements, key=lambda k: k["ts"])
             start_ts = engagements[0]["ts"]
@@ -110,6 +128,7 @@ def load_or_create_dataset(csi_root):
                 csi_data[eid]["timestamps"].append(e["ts"] - start_ts)
                 csi_data[eid]["uid"].append(e["uid"])
                 csi_data[eid]["text"].append(e["text"])
+                csi_data[eid]["stances"].append(e["stance"])
 
     with open(dataset_output_path, "wb") as f:
         pickle.dump(csi_data, f)
@@ -181,10 +200,19 @@ def get_doc2vec(doc2vec_model, eid, nonzero_bins):
     return X_text
 
 
-def get_features(eid, timestamps, threshold=90, resolution='day', sep=False, read_text=False,
-                 text_seq=None, embeddings_index=None, stopwords=None, read_user=False,
+def get_stance_mtx(stance_vt_dict, eid, nonzero_bins):
+    stance_vectors = []
+    for bid, bin_left in enumerate(nonzero_bins):
+        event_bin_tag = str(eid) + '_' + str(bid)
+        stance_vt = stance_vt_dict[event_bin_tag]  # (300,)
+        stance_vectors.append(stance_vt)
+    x_stance = np.concatenate(stance_vectors, axis=0) if len(stance_vectors) > 1 else stance_vectors[0]
+    return x_stance.reshape(1,-1)
+
+
+def get_features(eid, timestamps, stance_vt_dict, threshold=90, resolution='day',
                  doc2vec_model=None, user_feature=None, user2ind=None, user_list=None,
-                 cutoff=50, return_useridx=True):
+                 cutoff=50):
     '''
     timestamps
         : relative timestamps since the first tweet
@@ -215,113 +243,70 @@ def get_features(eid, timestamps, threshold=90, resolution='day', sep=False, rea
         nonzero_bins = nonzero_bins[:cutoff]
 
     ### user feature
-    if read_user:
-        X_useridx = []
-        for bid, bin_left in enumerate(nonzero_bins):
-            bin_userlist = []
-            bin_right = bin_left + binsize
-            try:
-                del temp
-            except:
-                pass
-            # Collecting text to make doc
-            for tid, t in enumerate(ts):
-                if t < bin_left:
-                    continue
-                elif t >= bin_right:
-                    break
-                else:
-                    pass
-                uid = user2ind[user_list[tid]]
-                bin_userlist.append(user_list[tid])
-                coef = user_feature[uid, :].reshape(1, -1)  # (1,n_components)
-                try:
-                    temp = np.concatenate((temp, coef), axis=0)
-                except:
-                    temp = coef
-
-            X_user_bin = np.mean(temp, axis=0).reshape(1, -1)
-
-            try:
-                X_user = np.concatenate((X_user, X_user_bin), axis=0)
-            except:
-                X_user = X_user_bin
-            X_useridx.append(bin_userlist)
-
-    ### text feature
-    if read_text:
-        text_matrix = get_doc2vec(doc2vec_model, eid, nonzero_bins)
-
-    if sep:
-        if read_text:
-            return hist, intervals, X_user, text_matrix
-        else:
-            return hist, intervals, X_user
-    else:
-        if read_text and read_user:
-            if return_useridx:
-                return np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user, text_matrix]), X_useridx
+    X_useridx = []
+    for bid, bin_left in enumerate(nonzero_bins):
+        bin_userlist = []
+        bin_right = bin_left + binsize
+        try:
+            del temp
+        except:
+            pass
+        # Collecting text to make doc
+        for tid, t in enumerate(ts):
+            if t < bin_left:
+                continue
+            elif t >= bin_right:
+                break
             else:
-                return np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user, text_matrix])
-        elif read_text or read_user:
-            if read_text:
-                return np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), text_matrix])
-            elif read_user:
-                if return_useridx:
-                    return np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user]), X_useridx
-                else:
-                    return np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user])
-        else:
-            return np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1)])
+                pass
+            uid = user2ind[user_list[tid]]
+            bin_userlist.append(user_list[tid])
+            coef = user_feature[uid, :].reshape(1, -1)  # (1,n_components)
+            try:
+                temp = np.concatenate((temp, coef), axis=0)
+            except:
+                temp = coef
+
+        X_user_bin = np.mean(temp, axis=0).reshape(1, -1)
+
+        try:
+            X_user = np.concatenate((X_user, X_user_bin), axis=0)
+        except:
+            X_user = X_user_bin
+        X_useridx.append(bin_userlist)
+
+    # text feature
+
+    stance_matrix = get_stance_mtx(stance_vt_dict, eid, nonzero_bins)
+    stance_feature_mtx = np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user, stance_matrix])
+    text_matrix = get_doc2vec(doc2vec_model, eid, nonzero_bins)
+    text_feature_mtx = np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user, text_matrix])
+    return text_feature_mtx, stance_feature_mtx, X_useridx
 
 
-def create_dataset(dict_, eid, threshold=90, resolution='day',
-                   read_text=False, embeddings_index=None, stopwords=None,
-                   doc2vec_model=None, user_feature=None, user2ind=None, read_user=False, task='regression',
-                   cutoff=50, return_useridx=True):
+def create_dataset(dict_, eid, stance_vt_dict, threshold=90, resolution='day',
+                   doc2vec_model=None, user_feature=None, user2ind=None,
+                   cutoff=50):
     messages = dict_[eid]
     ts = np.array(messages['timestamps'], dtype=np.int32)
     try:
         user_list = messages['uid'].tolist()
     except:
         user_list = messages['uid']
-    if read_text:
-        text_seq = np.array(messages['text'])
-    else:
-        text_seq = None
 
-    if read_user:
-        XX, XX_uidx = get_features(eid, ts, threshold=threshold, resolution=resolution, read_text=read_text,
-                                   text_seq=text_seq, embeddings_index=embeddings_index, stopwords=stopwords,
-                                   doc2vec_model=doc2vec_model, read_user=read_user,
-                                   user_feature=user_feature, user2ind=user2ind, user_list=user_list,
-                                   cutoff=cutoff, return_useridx=return_useridx)
-    else:
-        XX = get_features(eid, ts, threshold=threshold, resolution=resolution, read_text=read_text,
-                          text_seq=text_seq, embeddings_index=embeddings_index, stopwords=stopwords,
-                          doc2vec_model=doc2vec_model, read_user=read_user,
-                          user_feature=user_feature, user2ind=user2ind, user_list=user_list,
-                          cutoff=cutoff, return_useridx=return_useridx)
+    x_text, x_stance, XX_uidx = get_features(eid, ts, stance_vt_dict=stance_vt_dict, threshold=threshold, resolution=resolution,
+                                             doc2vec_model=doc2vec_model,
+                                             user_feature=user_feature, user2ind=user2ind, user_list=user_list,
+                                             cutoff=cutoff)
 
-    #     print(eid, XX.shape, X.shape)
-    if task == "regression":
-        X = XX[:-1, :]  # (nb_sample, 2+)
-        y = XX[1:, :2]
-        #         y = XX[1:,1]
-        if len(y.shape) == 1:
-            return X, y.reshape(-1, 1)
-        elif len(y.shape) == 2:
-            return X, y
-    elif task == "classification":
-        X = XX  # (nb_sample, 2+)
-        y = int(messages['label'])
-        if return_useridx:
-            return X, XX_uidx, y
-        else:
-            return X, y
+    y = int(messages['label'])
+    return x_text, x_stance, XX_uidx, y
 
 
 if __name__ == "__main__":
+    # Setting for CSI
+    use_temporality = False
+
     dict_ = load_or_create_dataset(CSI_ROOT)
 
     nb_messages, eid_list, user_set, list_lengths = get_stats(dict_)
@@ -370,7 +355,7 @@ if __name__ == "__main__":
     sigma_sub_path = os.path.join(CSI_ROOT, "tweet_sigma_sub.npy")
     vt_sub_path = os.path.join(CSI_ROOT, "tweet_vt_sub.npy")
 
-    RELOAD = False
+    RELOAD = True
     if RELOAD:
         # Load matrix_main
         u_main = np.load(open(u_main_path, 'rb'))
@@ -414,14 +399,18 @@ if __name__ == "__main__":
         np.save(vt_sub_path, vt_sub)
         print("SVD is done")
 
-    RELOAD_DOC2VEC = False
+    RELOAD_STANCE_VECTOR = True
+    stance_vector_dict_path = os.path.join(CSI_ROOT, "stance_vector_dict.pickle")
+    if RELOAD_STANCE_VECTOR:
+        with open(stance_vector_dict_path, "rb") as f:
+            stance_vector_dict = pickle.load(f)
+    else:
+        stance_vector_dict = build_stance_vector_dict(eid_list, dict_)
+        save_to_pickle(stance_vector_dict, stance_vector_dict_path)
+
     doc2vec_sentences_path = os.path.join(CSI_ROOT, "doc2vec_sentences.pickle")
     model_path = './doc2vec_model/tweet_doc2vec.model'
-    if RELOAD_DOC2VEC:
-        with open(doc2vec_sentences_path, "rb") as f:
-            sentences = pickle.load(f)
-    else:
-        sentences = build_doc2vec_dataset(eid_list, dict_)
+    sentences = build_doc2vec_dataset(eid_list, dict_)
     print("Num sentences {}".format(len(sentences)))
     doc_vectorizer = train_doc2vec(model_path, sentences)
 
@@ -430,10 +419,10 @@ if __name__ == "__main__":
 
     scaler_dict = {}
     nb_rumor = 0
-    burnin = 5 if TASK == "regression" else 0
+    burnin = 0
 
     ### Create dataset ###
-    X_dict = {}
+    X_text_dict, X_stance_dict = {}, {}
     X_uidx_dict = {}
     subX_dict = {}
     y_dict = {}
@@ -448,34 +437,13 @@ if __name__ == "__main__":
 
     eid_train, eid_val, eid_test = train_test_val["train"], train_test_val["val"], train_test_val["test"]
 
-    # eid_train, eid_test, _, _ = train_test_split(eid_list, range(len(eid_list)),
-    #                                              test_size=0.2, random_state=3)
-
-    # eid_train = pickle.load(open('./pickle/tweet_eid_train.pkl', 'r'))
-    # eid_test = pickle.load(open('./pickle/tweet_eid_test.pkl', 'r'))
-
-    # embeddings_index = None
-    # doc_vectorizer = None
-
-    ### Load news graph features ###
+    # Load news graph features
     user_text_dict = load_from_pickle(os.path.join(NEWS_GRAPH_ROOT, "user_features.pickle"))
 
-
     for ii, eid in enumerate(eid_list):
-        if read_user:
-            X, X_uidx, y = create_dataset(dict_, eid, threshold=90 * 24, resolution='hour',
-                                          read_text=read_text, embeddings_index=None, stopwords=None,
-                                          doc2vec_model=doc_vectorizer, user_feature=user_feature[:, :nb_feature_main],
-                                          user2ind=user2ind, read_user=read_user, task=TASK, cutoff=50,
-                                          return_useridx=True)
-        else:
-            X, y = create_dataset(dict_, eid, threshold=90 * 24, resolution='hour',
-                                  read_text=read_text, embeddings_index=None, stopwords=None,
-                                  doc2vec_model=doc_vectorizer, user_feature=user_feature[:, :nb_feature_main],
-                                  user2ind=user2ind, read_user=read_user, task=TASK, cutoff=50,
-                                  return_useridx=False)
-        if ii % 100 == 0:
-            print("processing... {}/{}  shape:{}".format(ii + 1, len(eid_list), X.shape))
+        X_text, X_stance, X_uidx, y = create_dataset(dict_, eid, stance_vt_dict=stance_vector_dict, threshold=90 * 24, resolution='hour',
+                                                     doc2vec_model=doc_vectorizer, user_feature=user_feature[:, :nb_feature_main],
+                                                     user2ind=user2ind, cutoff=50)
 
         label = int(dict_[eid]['label'])
         if label == 0:
@@ -483,13 +451,13 @@ if __name__ == "__main__":
         elif label == 1:
             rumor_user.extend(dict_[eid]['uid'])
         #     user_ids.update(dict_[eid]['to_user_id'])
-        X = X.astype(np.float32)
-        if X.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
+        X_text = X_text.astype(np.float32)
+        X_stance = X_stance.astype(np.float32)
+        if X_text.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
             continue
 
-        X_dict[eid] = X
-        if read_user:
-            X_uidx_dict[eid] = X_uidx
+        X_text_dict[eid] = X_text, X_stance_dict[eid] = X_stance
+        X_uidx_dict[eid] = X_uidx
         subX_dict[eid] = get_user_feature_in_event(dict_, eid, u_sample,
                                                    user_feature_sub[:, :nb_feature_sub],
                                                    user_sample2ind, user_text_feature=user_text_dict)
@@ -498,10 +466,11 @@ if __name__ == "__main__":
         try:
             scaler_dict[eid]
         except:
+            # use either X_text or X_stance should be fine
             scaler_hist = MinMaxScaler(feature_range=(0, 1))
-            scaler_hist.fit(X[:, 0].reshape(-1, 1))
+            scaler_hist.fit(X_text[:, 0].reshape(-1, 1))
             scaler_interval = MinMaxScaler(feature_range=(0, 1))
-            scaler_interval.fit(X[:, 1].reshape(-1, 1))
+            scaler_interval.fit(X_text[:, 1].reshape(-1, 1))
             scaler_dict[eid] = (scaler_hist, scaler_interval)
     print("Dataset are created.")
 
@@ -512,7 +481,8 @@ if __name__ == "__main__":
     }
 
     save_to_pickle(eid_list, EID_LIST_PATH)
-    save_to_pickle(X_dict, X_DICT_PATH)
+    save_to_pickle(X_text_dict, X_TEXT_DICT_PATH)
+    save_to_pickle(X_stance_dict, X_STANCE_DICT_PATH)
     save_to_pickle(y_dict, Y_DICT_PATH)
     save_to_pickle(dict_, DICT_PATH)
     save_to_pickle(subX_dict, SUBX_DICT_PATH)
