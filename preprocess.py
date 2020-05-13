@@ -106,29 +106,36 @@ def load_or_create_dataset(csi_root, temporal=True):
                 "stances": []
             }
             engagements = []
-            for tweet_id in os.listdir(tweet_dir):
-                tweet_path = os.path.join(tweet_dir, tweet_id)
-                with open(tweet_path, "r") as f:
-                    tweet_content = json.load(f)
-                unix_ts = convert_unix_ts(tweet_content["created_at"]) if temporal else 0.
-                uid = tweet_content["user"]["id"]
-                text = tweet_content["text"]
-                stance = event_tweet_stance_dict[eid][str(uid)] \
-                    if eid in event_tweet_stance_dict and str(uid) in event_tweet_stance_dict[eid] \
-                    else "none"
-                engagements.append({
-                    "ts": unix_ts,
-                    "uid": uid,
-                    "text": text,
-                    "stance": stance
-                })
-            engagements = sorted(engagements, key=lambda k: k["ts"])
-            start_ts = engagements[0]["ts"]
-            for e in engagements:
-                csi_data[eid]["timestamps"].append(e["ts"] - start_ts)
-                csi_data[eid]["uid"].append(e["uid"])
-                csi_data[eid]["text"].append(e["text"])
-                csi_data[eid]["stances"].append(e["stance"])
+            if os.path.exists(tweet_dir):
+                for tweet_id in os.listdir(tweet_dir):
+                    tweet_path = os.path.join(tweet_dir, tweet_id)
+                    with open(tweet_path, "r") as f:
+                        tweet_content = json.load(f)
+                    unix_ts = convert_unix_ts(tweet_content["created_at"]) if temporal else 0.
+                    uid = tweet_content["user"]["id"]
+                    text = tweet_content["text"]
+                    stance = event_tweet_stance_dict[eid][str(uid)] \
+                        if eid in event_tweet_stance_dict and str(uid) in event_tweet_stance_dict[eid] \
+                        else "none"
+                    engagements.append({
+                        "ts": unix_ts,
+                        "uid": uid,
+                        "text": text,
+                        "stance": stance
+                    })
+                engagements = sorted(engagements, key=lambda k: k["ts"])
+                start_ts = engagements[0]["ts"]
+                for e in engagements:
+                    csi_data[eid]["timestamps"].append(e["ts"] - start_ts)
+                    csi_data[eid]["uid"].append(e["uid"])
+                    csi_data[eid]["text"].append(e["text"])
+                    csi_data[eid]["stances"].append(e["stance"])
+            else:
+                # add a dummy engagement for news that has no engagement
+                csi_data[eid]["timestamps"].append(0.)
+                csi_data[eid]["uid"].append(0)
+                csi_data[eid]["text"].append("none")
+                csi_data[eid]["stances"].append("support")
 
     with open(dataset_output_path, "wb") as f:
         pickle.dump(csi_data, f)
@@ -206,8 +213,8 @@ def get_stance_mtx(stance_vt_dict, eid, nonzero_bins):
         event_bin_tag = str(eid) + '_' + str(bid)
         stance_vt = stance_vt_dict[event_bin_tag]  # (300,)
         stance_vectors.append(stance_vt)
-    x_stance = np.concatenate(stance_vectors, axis=0) if len(stance_vectors) > 1 else stance_vectors[0]
-    return x_stance.reshape(1,-1)
+    x_stance = np.vstack(stance_vectors) if len(stance_vectors) > 1 else stance_vectors[0].reshape(1, -1)
+    return x_stance
 
 
 def get_features(eid, timestamps, stance_vt_dict, threshold=90, resolution='day',
@@ -276,11 +283,10 @@ def get_features(eid, timestamps, stance_vt_dict, threshold=90, resolution='day'
         X_useridx.append(bin_userlist)
 
     # text feature
-
-    stance_matrix = get_stance_mtx(stance_vt_dict, eid, nonzero_bins)
-    stance_feature_mtx = np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user, stance_matrix])
     text_matrix = get_doc2vec(doc2vec_model, eid, nonzero_bins)
     text_feature_mtx = np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user, text_matrix])
+    stance_matrix = get_stance_mtx(stance_vt_dict, eid, nonzero_bins)
+    stance_feature_mtx = np.hstack([hist.reshape(-1, 1), intervals.reshape(-1, 1), X_user, stance_matrix])
     return text_feature_mtx, stance_feature_mtx, X_useridx
 
 
@@ -305,9 +311,10 @@ def create_dataset(dict_, eid, stance_vt_dict, threshold=90, resolution='day',
 
 if __name__ == "__main__":
     # Setting for CSI
-    use_temporality = False
+    use_temporal = True
+    data_percentage = 90
 
-    dict_ = load_or_create_dataset(CSI_ROOT)
+    dict_ = load_or_create_dataset(CSI_ROOT, use_temporal)
 
     nb_messages, eid_list, user_set, list_lengths = get_stats(dict_)
 
@@ -355,7 +362,7 @@ if __name__ == "__main__":
     sigma_sub_path = os.path.join(CSI_ROOT, "tweet_sigma_sub.npy")
     vt_sub_path = os.path.join(CSI_ROOT, "tweet_vt_sub.npy")
 
-    RELOAD = True
+    RELOAD = False
     if RELOAD:
         # Load matrix_main
         u_main = np.load(open(u_main_path, 'rb'))
@@ -399,7 +406,7 @@ if __name__ == "__main__":
         np.save(vt_sub_path, vt_sub)
         print("SVD is done")
 
-    RELOAD_STANCE_VECTOR = True
+    RELOAD_STANCE_VECTOR = False
     stance_vector_dict_path = os.path.join(CSI_ROOT, "stance_vector_dict.pickle")
     if RELOAD_STANCE_VECTOR:
         with open(stance_vector_dict_path, "rb") as f:
@@ -426,13 +433,11 @@ if __name__ == "__main__":
     X_uidx_dict = {}
     subX_dict = {}
     y_dict = {}
-    read_text = True
-    read_user = True
 
     rumor_user = []
     nonrumor_user = []
 
-    with open(os.path.join(CSI_ROOT, "train_test_90_0.json"), "rb") as f:
+    with open(os.path.join(CSI_ROOT, "train_test_{}.json".format(data_percentage)), "rb") as f:
         train_test_val = json.load(f)
 
     eid_train, eid_val, eid_test = train_test_val["train"], train_test_val["val"], train_test_val["test"]
@@ -456,7 +461,7 @@ if __name__ == "__main__":
         if X_text.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
             continue
 
-        X_text_dict[eid] = X_text, X_stance_dict[eid] = X_stance
+        X_text_dict[eid], X_stance_dict[eid] = X_text, X_stance
         X_uidx_dict[eid] = X_uidx
         subX_dict[eid] = get_user_feature_in_event(dict_, eid, u_sample,
                                                    user_feature_sub[:, :nb_feature_sub],

@@ -38,7 +38,7 @@ def build_stance_vector_dict(eid_list, dict_):
                     stance_vector[stance_idx] = 1
                     bin_stance_vectors.append(stance_vector)
             doc_id = str(eid) + '_%s' % bid
-            stance_vector_dict[doc_id] = np.mean(bin_stance_vectors) if len(bin_stance_vectors) > 0 \
+            stance_vector_dict[doc_id] = np.mean(bin_stance_vectors, axis=0) if len(bin_stance_vectors) > 0 \
                 else np.zeros(shape=(len(CHOSEN_STANCES)))
 
     return stance_vector_dict

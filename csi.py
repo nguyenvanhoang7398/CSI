@@ -14,13 +14,13 @@ from keras.optimizers import Adam
 from keras import backend as K
 
 
-def build_csi(user2ind, eid2ind, nb_feature_sub, task):
+def build_csi(user2ind, eid2ind, nb_feature_sub, task, n_engagement_feature):
 
     acc=0
 
     nb_users = len(user2ind)
     nb_events = len(eid2ind)
-    nb_features = 2+20+100    # (#temporal, #user, #doc)
+    nb_features = 2+20+n_engagement_feature    # (#temporal, #user, #doc)
     dim_hidden = 50
     text_feature_dim = 100
     news_feature_dim = text_feature_dim * 2

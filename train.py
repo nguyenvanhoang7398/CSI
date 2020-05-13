@@ -88,15 +88,15 @@ def train_test_fn(eid_train, eid_val, task, eid_list, burnin, X_dict, y_dict, di
 def eval_fn(model_obj, eid_val, writer, step, tag_name="validate"):
     preds, y_test = [], []
     for ii, eid in enumerate(eid_val):
-        X_news = X_news_dict[eid]
-        X = X_dict[remove_tag(eid)]
+        X_news = x_news_dict[eid]
+        X = x_dict[remove_tag(eid)]
         if X.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
             continue
 
         X = X.astype(np.float32)
 
         testX = X
-        sub_testX = subX_dict[remove_tag(eid)]
+        sub_testX = sub_x_dict[remove_tag(eid)]
         news_testX = X_news
 
         y_test.append(int(dict_[remove_tag(eid)]['label']))
@@ -113,25 +113,42 @@ def eval_fn(model_obj, eid_val, writer, step, tag_name="validate"):
     return val_evaluator
 
 
-if __name__ == "__main__":
-    eid_list = load_from_pickle(EID_LIST_PATH)
-    X_dict = load_from_pickle(X_DICT_PATH)
-    y_dict = load_from_pickle(Y_DICT_PATH)
-    X_news_dict = load_from_pickle(os.path.join(NEWS_GRAPH_ROOT, "news_source_features.pickle"))
-    dict_ = load_from_pickle(DICT_PATH)
-    subX_dict = load_from_pickle(SUBX_DICT_PATH)
-    scaler_dict = load_from_pickle(SCALER_DICT_PATH)
-    params = load_from_pickle(PARAM_PATH)
-    user2ind = load_from_pickle(USER2IND_PATH)
-    eid2ind = load_from_pickle(EID2IND_PATH)
-    _eid_train = load_from_pickle(EID_TRAIN_PATH)
-    _eid_val = load_from_pickle(EID_TEST_PATH)
-    _eid_test = load_from_pickle(EID_TEST_PATH)
+def load_data(use_temporal, use_stance, train_percentage):
+    temp_str = "temp" if use_temporal else "no_temp"
+    csi_root = "data/csi_{}_{}".format(train_percentage, temp_str)
+    eid_list = load_from_pickle(os.path.join(csi_root, "eid_list.pickle"))
+    x_dict = load_from_pickle(os.path.join(csi_root, "x_stance_dict.pickle")) if use_stance \
+        else load_from_pickle(os.path.join(csi_root, "x_text_dict.pickle"))
+    y_dict = load_from_pickle(os.path.join(csi_root, "y_dict.pickle"))
+    x_news_dict = load_from_pickle(os.path.join(NEWS_GRAPH_ROOT, "news_source_features.pickle"))
+    dict_ = load_from_pickle(os.path.join(csi_root, "dict_.pickle"))
+    sub_x_dict = load_from_pickle(os.path.join(csi_root, "subX_dict.pickle"))
+    scaler_dict = load_from_pickle(os.path.join(csi_root, "scaler_dict.pickle"))
+    params = load_from_pickle(os.path.join(csi_root, "params.pickle"))
+    user2ind = load_from_pickle(os.path.join(csi_root, "user2ind.pickle"))
+    eid2ind = load_from_pickle(os.path.join(csi_root, "eid2ind.pickle"))
+    _eid_train = load_from_pickle(os.path.join(csi_root, "eid_train.pickle"))
+    _eid_val = load_from_pickle(os.path.join(csi_root, "eid_val.pickle"))
+    _eid_test = load_from_pickle(os.path.join(csi_root, "eid_test.pickle"))
     task, nb_feature_sub, burnin = params["task"], params["nb_feature_sub"], params["burnin"]
+    n_engagement_feature = 2 if use_stance else 100
+    return eid_list, x_dict, y_dict, x_news_dict, dict_, sub_x_dict, scaler_dict, \
+        user2ind, eid2ind, _eid_train, _eid_val, _eid_test, task, nb_feature_sub, burnin, n_engagement_feature
 
-    model = build_csi(user2ind, eid2ind, nb_feature_sub, task)
-    best_model_path, _writer = train_test_fn(_eid_train, _eid_val, task, eid_list, burnin, X_dict, y_dict, dict_, subX_dict, X_news_dict,
-                                             scaler_dict, model)
+
+if __name__ == "__main__":
+    use_temporal = False
+    use_stance = True
+    train_percentage = 70
+
+    eid_list, x_dict, y_dict, x_news_dict, dict_, sub_x_dict, scaler_dict, \
+        user2ind, eid2ind, _eid_train, _eid_val, _eid_test, task, nb_feature_sub, burnin, n_engagement_feature = \
+        load_data(use_temporal, use_stance, train_percentage)
+
+    model = build_csi(user2ind, eid2ind, nb_feature_sub, task, n_engagement_feature)
+    best_model_path, _writer = train_test_fn(_eid_train, _eid_val, task, eid_list, burnin, x_dict, y_dict, dict_,
+                                             sub_x_dict, x_news_dict, scaler_dict, model)
     model.load_weights(best_model_path)
+    print("Testing best model")
     eval_fn(model, _eid_test, _writer, N_EPOCHS, "test")
     _writer.close()
