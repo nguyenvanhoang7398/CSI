@@ -13,15 +13,15 @@ class Evaluator(object):
         self.average = average
 
     def is_better_than(self, evaluator, metrics):
-        if "accuracy" in metrics and self.accuracy is not None and evaluator.accuracy is not None \
-                and evaluator.accuracy > self.accuracy:
-            return False
-        if "precision" in metrics and self.precision is not None and evaluator.precision is not None \
-                and evaluator.precision > self.precision:
-            return False
-        if "recall" in metrics and self.recall is not None and evaluator.recall is not None \
-                and evaluator.recall > self.recall:
-            return False
+        # if "accuracy" in metrics and self.accuracy is not None and evaluator.accuracy is not None \
+        #         and evaluator.accuracy > self.accuracy:
+        #     return False
+        # if "precision" in metrics and self.precision is not None and evaluator.precision is not None \
+        #         and evaluator.precision > self.precision:
+        #     return False
+        # if "recall" in metrics and self.recall is not None and evaluator.recall is not None \
+        #         and evaluator.recall > self.recall:
+        #     return False
         if "f1" in metrics and self.f1 is not None and evaluator.f1 is not None \
                 and evaluator.f1 > self.f1:
             return False

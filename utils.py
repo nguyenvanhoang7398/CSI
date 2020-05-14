@@ -16,7 +16,7 @@ def is_tag(entity_type, entity):
 
 
 def remove_tag(tagged_entity):
-    return tagged_entity.split("_")[-1]
+    return tagged_entity.split("_", 1)[-1]
 
 
 def remove_url(url_str):

@@ -458,8 +458,8 @@ if __name__ == "__main__":
         #     user_ids.update(dict_[eid]['to_user_id'])
         X_text = X_text.astype(np.float32)
         X_stance = X_stance.astype(np.float32)
-        if X_text.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
-            continue
+        # if X_text.shape[0] <= 2 * burnin:  # ignore length<=1 sequence
+        #     continue
 
         X_text_dict[eid], X_stance_dict[eid] = X_text, X_stance
         X_uidx_dict[eid] = X_uidx

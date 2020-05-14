@@ -1,7 +1,7 @@
 from sklearn.metrics import roc_curve, auc, accuracy_score, precision_score, confusion_matrix, recall_score, f1_score
 from keras.models import load_model
 import numpy as np
-from csi import build_csi
+from csi import build_csi, TEXT_FEATURE_DIM
 from constants import *
 from utils import *
 from evaluator import Evaluator
@@ -9,7 +9,7 @@ from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 METRICS = ["accuracy", "precision", "recall", "f1"]
-N_EPOCHS = 50
+N_EPOCHS = 100
 
 
 def get_exp_name(task_name, model_name):
@@ -66,6 +66,11 @@ def train_test_fn(eid_train, eid_val, task, eid_list, burnin, X_dict, y_dict, di
             score_inputs = sub_trainX[np.newaxis, :, :]
             news_inputs = X_news[np.newaxis, :]
 
+            if score_inputs.shape[2] != 150:
+                # pad zeros to news without engagements
+                padding = np.zeros(shape=(score_inputs.shape[0], score_inputs.shape[1], TEXT_FEATURE_DIM))
+                score_inputs = np.concatenate([score_inputs, padding], axis=-1)
+
             if ep % 50 == 0 and ii % 1000 == 0:
                 h = model.fit([capture_inputs, score_inputs, news_inputs], np.array([trainY]),
                               batch_size=1, nb_epoch=1, verbose=2)
@@ -101,7 +106,14 @@ def eval_fn(model_obj, eid_val, writer, step, tag_name="validate"):
 
         y_test.append(int(dict_[remove_tag(eid)]['label']))
 
-        pred = model_obj.predict([np.array([testX]), np.array([sub_testX]),
+        score_inputs = np.array([sub_testX])
+
+        if score_inputs.shape[2] != 150:
+            # pad zeros to news without engagements
+            padding = np.zeros(shape=(score_inputs.shape[0], score_inputs.shape[1], TEXT_FEATURE_DIM))
+            score_inputs = np.concatenate([score_inputs, padding], axis=-1)
+
+        pred = model_obj.predict([np.array([testX]), score_inputs,
                               np.array([news_testX])], verbose=0)
         preds.append(pred[0, 0])
 
@@ -137,9 +149,9 @@ def load_data(use_temporal, use_stance, train_percentage):
 
 
 if __name__ == "__main__":
-    use_temporal = False
-    use_stance = True
-    train_percentage = 70
+    use_temporal = True
+    use_stance = False
+    train_percentage = 90
 
     eid_list, x_dict, y_dict, x_news_dict, dict_, sub_x_dict, scaler_dict, \
         user2ind, eid2ind, _eid_train, _eid_val, _eid_test, task, nb_feature_sub, burnin, n_engagement_feature = \

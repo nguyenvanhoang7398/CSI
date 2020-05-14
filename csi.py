@@ -13,6 +13,8 @@ from keras import regularizers
 from keras.optimizers import Adam
 from keras import backend as K
 
+TEXT_FEATURE_DIM = 100
+
 
 def build_csi(user2ind, eid2ind, nb_feature_sub, task, n_engagement_feature):
 
@@ -22,7 +24,7 @@ def build_csi(user2ind, eid2ind, nb_feature_sub, task, n_engagement_feature):
     nb_events = len(eid2ind)
     nb_features = 2+20+n_engagement_feature    # (#temporal, #user, #doc)
     dim_hidden = 50
-    text_feature_dim = 100
+    text_feature_dim = TEXT_FEATURE_DIM
     news_feature_dim = text_feature_dim * 2
 
     ##### News (event) feature part #####
