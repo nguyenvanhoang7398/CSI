@@ -311,8 +311,8 @@ def create_dataset(dict_, eid, stance_vt_dict, threshold=90, resolution='day',
 
 if __name__ == "__main__":
     # Setting for CSI
-    use_temporal = True
-    data_percentage = 90
+    use_temporal = False
+    data_percentage = 50
 
     dict_ = load_or_create_dataset(CSI_ROOT, use_temporal)
 

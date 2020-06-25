@@ -1,3 +1,4 @@
+import argparse
 from sklearn.metrics import roc_curve, auc, accuracy_score, precision_score, confusion_matrix, recall_score, f1_score
 from keras.models import load_model
 import numpy as np
@@ -9,7 +10,7 @@ from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 METRICS = ["accuracy", "precision", "recall", "f1"]
-N_EPOCHS = 100
+N_EPOCHS = 200
 
 
 def get_exp_name(task_name, model_name):
@@ -21,11 +22,10 @@ def sigmoid_array(x):
 
 
 def train_test_fn(eid_train, eid_val, task, eid_list, burnin, X_dict, y_dict, dict_, subX_dict,
-                  X_news_dict, scaler_dict, model):
+                  X_news_dict, scaler_dict, model, exp_name):
 
     # for evaluation
     best_evaluator, best_output_path = Evaluator(predictions=[], labels=[]), ""
-    exp_name = get_exp_name("fang", "csi")
     save_dir = os.path.join("exp_ckpt", exp_name)
     os.makedirs(save_dir)
     best_dir_path = os.path.join(save_dir, "best.ckpt")
@@ -148,18 +148,30 @@ def load_data(use_temporal, use_stance, train_percentage):
         user2ind, eid2ind, _eid_train, _eid_val, _eid_test, task, nb_feature_sub, burnin, n_engagement_feature
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='CSI')
+    parser.add_argument('-t', '--temporal', action="store_true")
+    parser.add_argument('-s', '--stance', action="store_true")
+    parser.add_argument('--percent', type=int)
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    use_temporal = True
-    use_stance = False
-    train_percentage = 90
+    args = parse_args()
+    use_temporal = args.temporal
+    use_stance = args.stance
+    train_percentage = args.percent
 
     eid_list, x_dict, y_dict, x_news_dict, dict_, sub_x_dict, scaler_dict, \
         user2ind, eid2ind, _eid_train, _eid_val, _eid_test, task, nb_feature_sub, burnin, n_engagement_feature = \
         load_data(use_temporal, use_stance, train_percentage)
-
+    exp_name = get_exp_name("{}_{}_{}".format(
+        "temp" if use_temporal else "no_temp",
+        "stance" if use_stance else "no_stance",
+        train_percentage), "csi")
     model = build_csi(user2ind, eid2ind, nb_feature_sub, task, n_engagement_feature)
     best_model_path, _writer = train_test_fn(_eid_train, _eid_val, task, eid_list, burnin, x_dict, y_dict, dict_,
-                                             sub_x_dict, x_news_dict, scaler_dict, model)
+                                             sub_x_dict, x_news_dict, scaler_dict, model, exp_name)
     model.load_weights(best_model_path)
     print("Testing best model")
     eval_fn(model, _eid_test, _writer, N_EPOCHS, "test")
